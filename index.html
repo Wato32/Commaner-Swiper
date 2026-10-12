@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Commander Tinder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              mtg: {
+                ink: "#0b0a0f",
+                panel: "#15121c",
+                gold: "#d4af37",
+                golddim: "#8a6d1f",
+                parchment: "#f3e6c4",
+              },
+            },
+            fontFamily: {
+              display: ['"Cinzel"', "Georgia", "serif"],
+              body: ['"Source Sans 3"', "system-ui", "sans-serif"],
+            },
+            boxShadow: {
+              card: "0 25px 50px -12px rgba(0,0,0,.7), 0 0 0 1px rgba(212,175,55,.25)",
+              glow: "0 0 40px rgba(212,175,55,.18)",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="font-body text-stone-200 bg-mtg-ink min-h-screen overflow-x-hidden">
+    <div class="pointer-events-none fixed inset-0 bg-arena"></div>
+
+    <header class="relative z-20 flex items-center justify-between gap-4 px-4 py-4 sm:px-8">
+      <div class="flex items-center gap-3">
+        <div
+          class="flex h-11 w-11 items-center justify-center rounded-full border border-mtg-gold/50 bg-mtg-panel text-mtg-gold shadow-glow"
+        >
+          <span class="font-display text-xl">⚔</span>
+        </div>
+        <div>
+          <p class="font-display text-[11px] tracking-[0.28em] text-mtg-gold uppercase">
+            Magic: The Gathering
+          </p>
+          <h1 class="font-display text-xl sm:text-2xl text-mtg-parchment">Commander Tinder</h1>
+        </div>
+      </div>
+
+      <button
+        id="likes-open"
+        type="button"
+        class="rounded-full border border-mtg-gold/40 bg-mtg-panel/90 px-4 py-2 text-sm font-semibold text-mtg-parchment shadow-glow transition hover:border-mtg-gold hover:bg-mtg-gold/10"
+      >
+        Meine Likes (<span id="likes-count">0</span>)
+      </button>
+    </header>
+
+    <main class="relative z-10 mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-6xl flex-col px-4 pb-10 pt-2">
+      <!-- Farbfilter Leiste -->
+      <section class="mb-6 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-mtg-gold/20 bg-mtg-panel/80 p-3 shadow-glow">
+        <span class="mr-2 font-display text-xs tracking-wider text-mtg-gold uppercase">Farbfilter:</span>
+        <button type="button" data-color="all" class="color-filter-btn active rounded-lg border border-mtg-gold/30 px-3 py-1 text-xs font-semibold transition hover:bg-mtg-gold/20">Alle</button>
+        <div id="color-filters" class="flex gap-2">
+          <button type="button" data-color="W" class="color-filter-btn rounded-lg border border-white/20 bg-amber-50/10 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-50/20">
+            <span class="mana-icon"> W </span>
+          </button>
+          <button type="button" data-color="U" class="color-filter-btn rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200 transition hover:bg-blue-500/20">
+            <span class="mana-icon"> U </span>
+          </button>
+          <button type="button" data-color="B" class="color-filter-btn rounded-lg border border-black/30 bg-gray-800/10 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:bg-gray-800/20">
+            <span class="mana-icon"> B </span>
+          </button>
+          <button type="button" data-color="R" class="color-filter-btn rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-200 transition hover:bg-red-500/20">
+            <span class="mana-icon"> R </span>
+          </button>
+          <button type="button" data-color="G" class="color-filter-btn rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-semibold text-green-200 transition hover:bg-green-500/20">
+            <span class="mana-icon"> G </span>
+          </button>
+          <button type="button" data-color="C" class="color-filter-btn rounded-lg border border-stone-500/30 bg-stone-500/10 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-stone-500/20">
+            <span class="mana-icon"> C </span>
+          </button>
+        </div>
+      </section>
+
+      <p id="status" class="mb-4 min-h-[1.5rem] text-center text-sm text-stone-400">
+        Commanders werden beschworen…
+      </p>
+
+      <div class="flex w-full flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center">
+        <div class="flex w-full max-w-[360px] flex-col items-center">
+          <section class="relative h-[560px] w-full sm:h-[600px]">
+            <div id="deck" class="relative h-full w-full"></div>
+            <div
+              id="empty-state"
+              class="hidden absolute inset-0 flex flex-col items-center justify-center rounded-3xl border border-mtg-gold/20 bg-mtg-panel/80 p-8 text-center"
+            >
+              <p class="font-display text-2xl text-mtg-gold">Deck leer</p>
+              <p class="mt-2 text-stone-400">Keine weiteren Commanders für diesen Filter.</p>
+              <button
+                id="reload-deck"
+                type="button"
+                class="mt-6 rounded-full border border-mtg-gold/50 px-5 py-2 text-sm font-semibold text-mtg-parchment hover:bg-mtg-gold/10"
+              >
+                Deck neu mischen
+              </button>
+            </div>
+          </section>
+
+          <div class="mt-8 flex items-center gap-10">
+            <button
+              id="dislike-btn"
+              type="button"
+              aria-label="Dislike"
+              class="action-btn flex h-16 w-16 items-center justify-center rounded-full border-2 border-rose-500/70 bg-rose-950/70 text-3xl text-rose-400 shadow-[0_0_28px_rgba(244,63,94,.25)] transition hover:scale-105 active:scale-95"
+            >
+              ✕
+            </button>
+            <button
+              id="like-btn"
+              type="button"
+              aria-label="Like"
+              class="action-btn flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-400/70 bg-emerald-950/70 text-3xl text-emerald-400 shadow-[0_0_28px_rgba(52,211,153,.25)] transition hover:scale-105 active:scale-95"
+            >
+              ♥
+            </button>
+          </div>
+
+          <p class="mt-5 text-center text-xs text-stone-500">
+            Wischen, Pfeiltasten oder Buttons — links skippen, rechts liken.
+          </p>
+        </div>
+
+        <aside
+          id="intel-panel"
+          class="w-full max-w-xl rounded-2xl border border-mtg-gold/25 bg-mtg-panel/85 p-5 shadow-card lg:sticky lg:top-6"
+        >
+          <div id="oracle-block"></div>
+          <div id="edhrec-block" class="mt-6"></div>
+          <div class="mt-6">
+            <a 
+              id="cardmarket-link"
+              href="#" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center gap-2 rounded-lg border border-mtg-gold/50 bg-mtg-panel/90 px-4 py-2 text-sm font-semibold text-mtg-parchment shadow-glow transition hover:border-mtg-gold hover:bg-mtg-gold/10"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 6h-1V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v2H5c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7 12c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm-5-8h10V7H7v3z"/>
+              </svg>
+              Auf Cardmarket suchen
+            </a>
+            <div class="mt-2 text-sm">
+              <span>Ca. {{eurPrice}} auf Cardmarket</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <div
+      id="likes-modal"
+      class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+      aria-hidden="true"
+    >
+      <div id="likes-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+      <div
+        class="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mtg-gold/30 bg-mtg-panel shadow-card"
+      >
+        <div class="flex items-center justify-between border-b border-mtg-gold/20 px-5 py-4">
+          <h2 class="font-display text-xl text-mtg-gold">Meine Likes</h2>
+          <button
+            id="likes-close"
+            type="button"
+            class="rounded-full px-3 py-1 text-stone-400 hover:bg-white/5 hover:text-white"
+          >
+            Schließen
+          </button>
+        </div>
+        <div id="likes-container" class="flex flex-col h-full likes-container">
+          <div id="likes-grid" class="grid grid-cols-2 gap-4 overflow-y-auto p-5 sm:grid-cols-3 likes-grid"></div>
+          <div id="like-detail-view" class="hidden flex-col p-5 like-detail-view">
+            <button id="detail-back-btn" type="button" class="self-start mb-4 rounded-full border border-mtg-gold/50 px-4 py-2 text-sm font-semibold text-mtg-parchment hover:bg-mtg-gold/10">
+              ← Zurück zur Übersicht
+            </button>
+            <div id="detail-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

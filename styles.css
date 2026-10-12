@@ -1,0 +1,137 @@
+.bg-arena {
+  background:
+    radial-gradient(ellipse at top, rgba(212, 175, 55, 0.12), transparent 55%),
+    radial-gradient(ellipse at bottom, rgba(80, 20, 20, 0.35), transparent 50%),
+    linear-gradient(180deg, #120e18 0%, #0b0a0f 100%);
+}
+
+.bg-arena::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.045'/%3E%3C/svg%3E");
+  opacity: 0.7;
+}
+
+.swipe-card {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+
+.swipe-card .frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: 1.35rem;
+  overflow: hidden;
+  background: #1a1624;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  box-shadow:
+    0 24px 50px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 4px rgba(90, 68, 20, 0.45);
+}
+
+.swipe-card .art {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.swipe-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.swipe-card .oracle-clip {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.oracle-full {
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.synergy-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scrollbar-width: thin;
+}
+
+.synergy-row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.synergy-row::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.35);
+  border-radius: 99px;
+}
+
+.stamp {
+  position: absolute;
+  top: 2.2rem;
+  font-family: Cinzel, Georgia, serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  padding: 0.2rem 0.7rem;
+  border: 4px solid;
+  border-radius: 0.4rem;
+  opacity: 0;
+  transform: rotate(-18deg);
+  pointer-events: none;
+}
+
+.stamp.like {
+  left: 1.2rem;
+  color: #34d399;
+  border-color: #34d399;
+}
+
+.stamp.nope {
+  right: 1.2rem;
+  color: #fb7185;
+  border-color: #fb7185;
+  transform: rotate(16deg);
+}
+
+.color-pip {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.pip-W { background: #f8f1d4; }
+.pip-U { background: #3b82f6; }
+.pip-B { background: #2e2a33; }
+.pip-R { background: #ef4444; }
+.pip-G { background: #22c55e; }
+.pip-C { background: #a8a29e; }
+
+/* Scrollbar für Likes-Ansicht */
+.likes-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.likes-grid {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.like-detail-view {
+  flex: 1;
+  overflow-y: auto;
+}
