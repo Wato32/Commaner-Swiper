@@ -23,14 +23,10 @@ const likeBtn = document.getElementById("like-btn");
 const dislikeBtn = document.getElementById("dislike-btn");
 
 function getCardmarketUrl(cardName) {
-  // Create the base URL with encoded card name
   let url = `https://www.cardmarket.com/de/Magic/Products/Search?searchString=${encodeURIComponent(cardName)}`;
-  
-  // Add affiliate ID if it's set
   if (AFFILIATE_ID && AFFILIATE_ID.trim() !== '') {
     url += `&idAffiliate=${AFFILIATE_ID}`;
   }
-  
   return url;
 }
 
@@ -89,6 +85,8 @@ function oracleFaces(card) {
       name: face.name,
       type: face.type_line || "",
       text: face.oracle_text || "",
+      mana_cost: face.mana_cost || "",
+      cmc: face.cmc ?? 0,
     }));
   }
   return [
@@ -96,23 +94,71 @@ function oracleFaces(card) {
       name: card.name,
       type: card.type_line || "",
       text: card.oracle_text || "",
+      mana_cost: card.mana_cost || "",
+      cmc: card.cmc ?? 0,
     },
   ];
 }
 
+// Robuste Hilfsfunktion zum Auslesen von Mana-Kosten und CMC
+function getCardMana(card) {
+  if (card.card_faces && card.card_faces.length > 0) {
+    return {
+      mana_cost: card.card_faces[0].mana_cost || card.mana_cost || "",
+      cmc: card.card_faces[0].cmc !== undefined ? card.card_faces[0].cmc : (card.cmc ?? "")
+    };
+  }
+  return {
+    mana_cost: card.mana_cost || "",
+    cmc: card.cmc ?? ""
+  };
+}
+
 function summarize(card) {
+  const manaInfo = getCardMana(card);
   return {
     id: card.id,
     name: card.name,
     type: card.type_line,
-    colors: card.colors || [], // Changed from color_identity to colors
+    colors: card.colors || [],
     image: imageFor(card),
     scryfall: card.scryfall_uri,
     set: card.set_name,
     faces: oracleFaces(card),
+    mana_cost: manaInfo.mana_cost,
+    cmc: manaInfo.cmc,
     eurPrice: card.prices?.eur || 'N/A',
     edhrecRank: card.edhrec_rank ? `#${card.edhrec_rank}` : 'Unranked',
   };
+}
+
+// Wandelt Scryfall Mana-Kosten (z.B. "{2}{U}{R}") in echte HTML-Icons um
+function renderManaCostIcons(manaCostString) {
+  if (!manaCostString) return "";
+  
+  const matches = manaCostString.match(/\{([^}]+)\}/g);
+  if (!matches) return escapeHtml(manaCostString);
+
+  return matches.map(match => {
+    const symbol = match.replace(/\{|\}/g, "").toLowerCase();
+    
+    if (!isNaN(symbol)) {
+      return `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-stone-700 text-stone-200 text-[10px] font-bold border border-stone-500/40">${symbol}</span>`;
+    }
+    
+    let bgClass = "bg-stone-600";
+    
+    switch (symbol) {
+      case 'w': bgClass = "bg-[#f8f1d4] text-stone-900 border-amber-200/50"; break;
+      case 'u': bgClass = "bg-blue-600 text-white border-blue-400/50"; break;
+      case 'b': bgClass = "bg-[#2e2a33] text-stone-200 border-stone-600"; break;
+      case 'r': bgClass = "bg-red-600 text-white border-red-400/50"; break;
+      case 'g': bgClass = "bg-green-600 text-white border-green-400/50"; break;
+      case 'c': bgClass = "bg-stone-500 text-white border-stone-400/50"; break;
+    }
+
+    return `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold border shadow-sm ${bgClass}">${symbol.toUpperCase()}</span>`;
+  }).join("");
 }
 
 function edhrecSlug(name) {
@@ -139,21 +185,9 @@ async function fetchCommanders() {
   statusEl.textContent = "Commanders werden beschworen…";
   const collected = [];
   
-  // Prüfen, ob "Alle" ausgewählt ist oder keine Filter aktiv sind
   const isAllSelected = !state.selectedColor || 
                         state.selectedColor.includes("all") || 
                         state.selectedColor.length === 0;
-
-  // Wenn "Alle" gewählt ist, gar kein Farbparameter an Scryfall hängen
-  let colorQuery = "";
-  if (!isAllSelected) {
-    const colors = state.selectedColor.filter(color => color !== "all");
-    if (!colors.includes("C") && colors.length > 0) {
-      // Für einfache Farben können wir optional direkt über Scryfall vorfiltern
-      // Wir lassen es hier sicherheitshalber über JavaScript filtern, 
-      // damit die Logik konsistent bleibt.
-    }
-  }
 
   let url = `https://api.scryfall.com/cards/search?q=is%3Acommander+game%3Apaper+-is%3Adigital&unique=cards&order=edhrec`;
 
@@ -171,13 +205,9 @@ async function fetchCommanders() {
     
     const summarizedCards = collected.map(summarize);
     
-    // Nur filtern, wenn NICHT "Alle" ausgewählt ist
     let filteredCards = summarizedCards;
     if (!isAllSelected) {
-      console.log("Applying color filter with:", state.selectedColor);
       filteredCards = filterCardsByColors(summarizedCards, state.selectedColor);
-    } else {
-      console.log("Showing all cards - no filtering applied");
     }
     
     return shuffle(filteredCards.filter((card) => card.image && !state.seen.has(card.id)));
@@ -222,6 +252,9 @@ function cardMarkup(card, index) {
   const z = 20 - index;
   const scale = 1 - Math.min(index, 2) * 0.035;
   const y = Math.min(index, 2) * 10;
+  
+  const manaCost = card.mana_cost || "";
+  
   return `
     <article
       class="swipe-card"
@@ -235,13 +268,18 @@ function cardMarkup(card, index) {
           <div class="stamp nope">NOPE</div>
         </div>
         <div class="bg-[#120f18] p-3 pt-2">
-          <h2 class="font-display text-xl leading-tight text-mtg-parchment">${escapeHtml(card.name)}</h2>
+          <div class="flex items-start justify-between gap-2">
+            <h2 class="font-display text-xl leading-tight text-mtg-parchment">${escapeHtml(card.name)}</h2>
+            <div class="flex items-center gap-1 shrink-0">
+              ${renderManaCostIcons(manaCost)}
+            </div>
+          </div>
           <p class="mt-0.5 text-xs text-stone-300">${escapeHtml(card.type)}</p>
-          <div class="mt-1.5 flex items-center gap-1.5">${colorPips(card.colors)}</div>
-          <p class="oracle-clip mt-2 text-xs leading-snug text-stone-300">${escapeHtml(oraclePreview(card))}</p>
-          <div class="mt-2">
+          <div class="mt-1.5 flex items-center justify-between">
+            <div class="flex items-center gap-1.5">${colorPips(card.colors)}</div>
             <span class="rounded-full bg-mtg-gold/10 px-2 py-0.5 text-xs font-semibold text-mtg-gold">${card.edhrecRank}</span>
           </div>
+          <p class="oracle-clip mt-2 text-xs leading-snug text-stone-300">${escapeHtml(oraclePreview(card))}</p>
         </div>
       </div>
     </article>
@@ -253,7 +291,6 @@ function renderIntel(card) {
     intelPanelEl.classList.add("opacity-40");
     oracleBlockEl.innerHTML = `<p class="text-stone-500">Kein Commander mehr in der Queue.</p>`;
     edhrecBlockEl.innerHTML = "";
-    // Update the cardmarket link when no card is present
     if (cardmarketLinkEl) {
       cardmarketLinkEl.href = "#";
     }
@@ -261,11 +298,21 @@ function renderIntel(card) {
   }
 
   intelPanelEl.classList.remove("opacity-40");
+  
+  const manaCost = card.mana_cost || "";
+
   oracleBlockEl.innerHTML = `
-    <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Regeltext</p>
-    <h2 class="mt-1 font-display text-2xl text-mtg-parchment">${escapeHtml(card.name)}</h2>
+    <div class="flex items-start justify-between gap-2">
+      <div>
+        <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Regeltext</p>
+        <h2 class="mt-1 font-display text-2xl text-mtg-parchment">${escapeHtml(card.name)}</h2>
+      </div>
+      <div class="flex items-center gap-1 shrink-0 pt-1">
+        ${renderManaCostIcons(manaCost)}
+      </div>
+    </div>
     <p class="mt-1 text-sm text-stone-400">${escapeHtml(card.type)}</p>
-    <div class="mt-2">
+    <div class="mt-2 flex items-center gap-2">
       <span class="rounded-full bg-mtg-gold/10 px-2 py-0.5 text-xs font-semibold text-mtg-gold">${card.edhrecRank}</span>
     </div>
     <div class="mt-2 text-sm">
@@ -276,14 +323,11 @@ function renderIntel(card) {
   `;
   loadSynergyCards(card);
   
-  // Update the cardmarket link with the current card's name and price
   if (cardmarketLinkEl) {
     cardmarketLinkEl.href = getCardmarketUrl(card.name);
-    // Add price information below the button
     const priceInfo = document.createElement('div');
     priceInfo.className = 'mt-2 text-sm';
     priceInfo.innerHTML = `<span>Ca. ${card.eurPrice === 'N/A' ? 'Preis n.v.' : card.eurPrice + ' €'} auf Cardmarket</span>`;
-    // Remove existing price info if present
     const existingPriceInfo = cardmarketLinkEl.parentNode.querySelector('.mt-2.text-sm');
     if (existingPriceInfo) {
       existingPriceInfo.remove();
@@ -326,15 +370,12 @@ function renderSynergySection(card, synergyCards) {
         .join("")
     : `<p class="text-sm text-stone-400">Keine spezifischen Karten gefunden.</p>`;
 
-  // Prüfen, ob wir in der Detailansicht sind
   if (likeDetailViewEl && !likeDetailViewEl.classList.contains("hidden")) {
-    // In der Detailansicht: aktualisiere nur die Synergien
     const synergyContainer = detailContentEl.querySelector(".synergy-row");
     if (synergyContainer) {
       synergyContainer.innerHTML = items;
     }
   } else {
-    // In der Hauptansicht: normaler Render
     edhrecBlockEl.innerHTML = `
       <div class="flex items-end justify-between gap-3">
         <div>
@@ -494,7 +535,7 @@ function decide(liked) {
 
   state.seen.add(current.id);
   if (liked && !state.likes.some((item) => item.id === current.id)) {
-    state.likes.unshift(current);
+    state.likes.unshift(summarize(current));
   }
   saveLikes();
 
@@ -519,7 +560,7 @@ function renderLikes() {
   likesGridEl.innerHTML = state.likes
     .map(
       (card) => `
-        <article class="overflow-hidden rounded-xl border border-mtg-gold/20 bg-black/30">
+        <article class="overflow-hidden rounded-xl border border-mtg-gold/20 bg-black/30" data-id="${escapeHtml(card.id)}">
           <img src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}" class="aspect-[5/7] w-full object-cover" />
           <div class="p-3">
             <h3 class="font-display text-sm text-mtg-parchment">${escapeHtml(card.name)}</h3>
@@ -529,6 +570,9 @@ function renderLikes() {
                 Entfernen
               </button>
             </div>
+            <div class="mt-1 flex justify-end">
+              ${renderManaCostIcons(card.mana_cost)}
+            </div>
           </div>
         </article>
       `
@@ -537,17 +581,20 @@ function renderLikes() {
 }
 
 function showLikeDetail(card) {
-  // Verstecke das Likes-Grid und zeige die Detailansicht
   likesGridEl.classList.add("hidden");
   likeDetailViewEl.classList.remove("hidden");
   
-  // Render die Detailansicht mit den Daten des Cards
+  const manaCost = card.mana_cost || "";
+  
   detailContentEl.innerHTML = `
     <div class="mb-6">
       <div class="flex items-start gap-4">
         <img src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}" class="aspect-[5/7] w-32 rounded-lg border border-mtg-gold/20 object-cover" />
-        <div>
-          <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Regeltext</p>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Regeltext</p>
+            <div class="flex items-center gap-1">${renderManaCostIcons(manaCost)}</div>
+          </div>
           <h2 class="mt-1 font-display text-2xl text-mtg-parchment">${escapeHtml(card.name)}</h2>
           <p class="mt-1 text-sm text-stone-400">${escapeHtml(card.type)}</p>
           <div class="mt-2 text-sm">
@@ -575,9 +622,7 @@ function showLikeDetail(card) {
           Auf EDHREC ansehen
         </a>
       </div>
-      <div class="synergy-row mt-4">
-        <!-- Synergien werden dynamisch geladen -->
-      </div>
+      <div class="synergy-row mt-4"></div>
     </div>
     
     <div>
@@ -596,12 +641,10 @@ function showLikeDetail(card) {
     </div>
   `;
   
-  // Lade die Synergien für dieses Karte
   loadSynergyCards(card);
 }
 
 function hideLikeDetail() {
-  // Verstecke die Detailansicht und zeige das Likes-Grid wieder
   likeDetailViewEl.classList.add("hidden");
   likesGridEl.classList.remove("hidden");
 }
@@ -619,56 +662,42 @@ function closeLikes() {
   likesModalEl.setAttribute("aria-hidden", "true");
 }
 
-// Farbfilter Event Listeners
-let selectedColors = new Set(["all"]); // Initially select "all"
+let selectedColors = new Set(["all"]);
 
 document.querySelectorAll(".color-filter-btn").forEach((btn) => {
   btn.addEventListener("click", async (e) => {
     const target = e.currentTarget;
     const color = target.getAttribute("data-color");
     
-    // Toggle color selection
     if (color === "all") {
-      // If selecting "all", deselect all others and select "all"
       selectedColors.clear();
       selectedColors.add("all");
       document.querySelectorAll(".color-filter-btn").forEach((b) => b.classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active"));
       target.classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
-      // Always show color filters (this ensures they're visible even when "all" is selected)
       document.getElementById('color-filters').style.display = 'flex';
     } else {
-      // Handle multi-selection
       if (selectedColors.has("all")) {
-        // If "all" is selected, deselect it first
         selectedColors.delete("all");
         document.querySelector("[data-color='all']").classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active");
-        // Show color filters when switching from "all" to specific colors
         document.getElementById('color-filters').style.display = 'flex';
       }
       
       if (selectedColors.has(color)) {
-        // Deselect the color
         selectedColors.delete(color);
         target.classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active");
       } else {
-        // Select the color
         selectedColors.add(color);
         target.classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
       }
       
-      // If no colors are selected, select "all" again (this makes sure there's always a selection)
       if (selectedColors.size === 0) {
         selectedColors.add("all");
         document.querySelector("[data-color='all']").classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
-        // Show color filters when going back to "all"
         document.getElementById('color-filters').style.display = 'flex';
       }
     }
     
-    // Update state with selected colors - convert Set to Array
     state.selectedColor = Array.from(selectedColors);
-    
-    // Reset seen cards and fetch new commanders
     state.seen.clear();
     saveLikes();
     
@@ -678,72 +707,29 @@ document.querySelectorAll(".color-filter-btn").forEach((btn) => {
   });
 });
 
-// Filter cards based on selected colors - simple and correct approach
 function filterCardsByColors(cards, selectedColors) {
-  // If "all" is selected or no colors are selected, return all cards
   if (!selectedColors || selectedColors.includes("all") || selectedColors.length === 0) {
-    console.log("Showing all cards - no filtering applied");
     return cards;
   }
   
-  // Remove "all" from the array for filtering (if it exists)
   const colors = selectedColors.filter(color => color !== "all");
-  
-  // If no specific colors are selected, return all cards
-  if (colors.length === 0) {
-    console.log("No specific colors selected - showing all cards");
-    return cards;
-  }
-  
-  console.log("Filtering by colors:", colors);
+  if (colors.length === 0) return cards;
   
   return cards.filter(card => {
-    // Handle exact color matching
     if (!card.colors || card.colors.length === 0) {
-      // Colorless cards
-      const result = colors.includes("C");
-      console.log("Colorless card check - card has no colors, requested colors include C:", result);
-      return result;
+      return colors.includes("C");
     }
     
     const cardColors = new Set(card.colors);
     const selectedColorSet = new Set(colors);
     
-    // They must have the same size and all elements must match
-    if (cardColors.size !== selectedColorSet.size) {
-      console.log("Size mismatch - card has", cardColors.size, "colors, requested", selectedColorSet.size);
-      return false;
-    }
+    if (cardColors.size !== selectedColorSet.size) return false;
     
-    // Check if every card color is in the selected colors
     for (const color of cardColors) {
-      if (!selectedColorSet.has(color)) {
-        console.log("Color not found - card has", color, "but not in requested:", colors);
-        return false;
-      }
+      if (!selectedColorSet.has(color)) return false;
     }
-    
-    console.log("Card matches filter - all colors match");
     return true;
   });
-}
-
-// Debug function to check what's in the cards
-function debugCardColors(cards) {
-  console.log("Debug: First few cards colors:", cards.slice(0, 5).map(card => ({
-    name: card.name,
-    colors: card.colors,
-    color_identity: card.color_identity
-  })));
-}
-
-// Debug function to check what's in the cards
-function debugCardColors(cards) {
-  console.log("Debug: First few cards colors:", cards.slice(0, 5).map(card => ({
-    name: card.name,
-    colors: card.colors,
-    color_identity: card.color_identity
-  })));
 }
 
 likeBtn.addEventListener("click", () => decide(true));
@@ -775,7 +761,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") decide(false);
 });
 
-// Event Listeners für die Likes-Modal-Details
 document.addEventListener("click", (e) => {
   if (e.target.matches("#likes-open")) {
     openLikes();
@@ -785,26 +770,23 @@ document.addEventListener("click", (e) => {
     closeLikes();
   }
   
-  // Klick auf ein Karten-Item im Likes-Grid (aber nicht auf den "Entfernen"-Button)
   if (e.target.closest("#likes-grid") && !e.target.matches("[data-remove]")) {
     const cardElement = e.target.closest("article");
     if (cardElement) {
-      // Extrahiere den Namen aus dem img alt Attribut
-      const cardName = cardElement.querySelector("img").getAttribute("alt");
-      const card = state.likes.find(c => c.name === cardName);
+      // Finde die Karte direkt über die ID aus dem data-id Attribut
+      const cardId = cardElement.getAttribute('data-id');
+      const card = state.likes.find(c => c.id === cardId);
       if (card) {
         showLikeDetail(card);
       }
     }
   }
   
-  // Klick auf den "Zurück"-Button in der Detailansicht
   if (e.target.matches("#detail-back-btn")) {
     hideLikeDetail();
   }
 });
 
-// Event Listener für das Entfernen von Likes
 likesGridEl.addEventListener("click", (e) => {
   if (e.target.matches("[data-remove]")) {
     const id = e.target.getAttribute("data-remove");
@@ -815,6 +797,7 @@ likesGridEl.addEventListener("click", (e) => {
 });
 
 async function boot() {
+  save_likes_safe = true;
   saveLikes();
   const cards = await fetchCommanders();
   state.queue = cards;
