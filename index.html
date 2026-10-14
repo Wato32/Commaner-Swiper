@@ -57,6 +57,14 @@
       </div>
 
       <button
+        id="profile-open"
+        type="button"
+        class="rounded-full border border-mtg-gold/40 bg-mtg-panel/90 px-4 py-2 text-sm font-semibold text-mtg-parchment shadow-glow transition hover:border-mtg-gold hover:bg-mtg-gold/10"
+      >
+        Profil
+      </button>
+      
+      <button
         id="likes-open"
         type="button"
         class="rounded-full border border-mtg-gold/40 bg-mtg-panel/90 px-4 py-2 text-sm font-semibold text-mtg-parchment shadow-glow transition hover:border-mtg-gold hover:bg-mtg-gold/10"
@@ -67,7 +75,7 @@
 
     <main class="relative z-10 mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-6xl flex-col px-4 pb-10 pt-2">
       <!-- Farbfilter Leiste -->
-      <section class="mb-6 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-mtg-gold/20 bg-mtg-panel/80 p-3 shadow-glow">
+      <section id="main-color-filter" class="mb-6 flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-mtg-gold/20 bg-mtg-panel/80 p-3 shadow-glow">
         <span class="mr-2 font-display text-xs tracking-wider text-mtg-gold uppercase">Farbfilter:</span>
         <button type="button" data-color="all" class="color-filter-btn active rounded-lg border border-mtg-gold/30 px-3 py-1 text-xs font-semibold transition hover:bg-mtg-gold/20">Alle</button>
         <div id="color-filters" class="flex gap-2">
@@ -174,7 +182,7 @@
     >
       <div id="likes-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
       <div
-        class="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mtg-gold/30 bg-mtg-panel shadow-card"
+        class="relative z-10 flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mtg-gold/30 bg-mtg-panel shadow-card"
       >
         <div class="flex items-center justify-between border-b border-mtg-gold/20 px-5 py-4">
           <h2 class="font-display text-xl text-mtg-gold">Meine Likes</h2>
@@ -186,13 +194,93 @@
             Schließen
           </button>
         </div>
-        <div id="likes-container" class="flex flex-col h-full likes-container">
+        <div id="likes-container" class="flex flex-col likes-container">
           <div id="likes-grid" class="grid grid-cols-2 gap-4 overflow-y-auto p-5 sm:grid-cols-3 likes-grid"></div>
           <div id="like-detail-view" class="hidden flex-col p-5 like-detail-view">
             <button id="detail-back-btn" type="button" class="self-start mb-4 rounded-full border border-mtg-gold/50 px-4 py-2 text-sm font-semibold text-mtg-parchment hover:bg-mtg-gold/10">
               ← Zurück zur Übersicht
             </button>
             <div id="detail-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profil-Modal -->
+    <div
+      id="profile-modal"
+      class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+      aria-hidden="true"
+    >
+      <div id="profile-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+      <div
+        class="relative z-10 flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-mtg-gold/30 bg-mtg-panel shadow-card"
+      >
+        <div class="flex items-center justify-between border-b border-mtg-gold/20 px-5 py-4">
+          <h2 class="font-display text-xl text-mtg-gold">Mein Profil</h2>
+          <button
+            id="profile-close"
+            type="button"
+            class="rounded-full px-3 py-1 text-stone-400 hover:bg-white/5 hover:text-white"
+          >
+            Schließen
+          </button>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+          <div>
+            <h3 class="font-display text-lg text-mtg-gold mb-3">Lieblingsfarben</h3>
+            <div id="favorite-colors" class="flex flex-wrap gap-2">
+              <button type="button" data-color="all" class="color-filter-btn active rounded-lg border border-mtg-gold/30 px-3 py-1 text-xs font-semibold transition hover:bg-mtg-gold/20">Alle</button>
+              <button type="button" data-color="W" class="color-filter-btn rounded-lg border border-white/20 bg-amber-50/10 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-50/20">
+                <span class="mana-icon"> W </span>
+              </button>
+              <button type="button" data-color="U" class="color-filter-btn rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200 transition hover:bg-blue-500/20">
+                <span class="mana-icon"> U </span>
+              </button>
+              <button type="button" data-color="B" class="color-filter-btn rounded-lg border border-black/30 bg-gray-800/10 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:bg-gray-800/20">
+                <span class="mana-icon"> B </span>
+              </button>
+              <button type="button" data-color="R" class="color-filter-btn rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-200 transition hover:bg-red-500/20">
+                <span class="mana-icon"> R </span>
+              </button>
+              <button type="button" data-color="G" class="color-filter-btn rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-semibold text-green-200 transition hover:bg-green-500/20">
+                <span class="mana-icon"> G </span>
+              </button>
+              <button type="button" data-color="C" class="color-filter-btn rounded-lg border border-stone-500/30 bg-stone-500/10 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-stone-500/20">
+                <span class="mana-icon"> C </span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-display text-lg text-mtg-gold mb-3">Lieblings-Mechaniken</h3>
+            <div id="favorite-mechanics" class="flex flex-wrap gap-2">
+              <button type="button" data-mechanic="trample" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Trample</button>
+              <button type="button" data-mechanic="first-strike" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">First Strike</button>
+              <button type="button" data-mechanic="vigilance" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Vigilance</button>
+              <button type="button" data-mechanic="deathtouch" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Deathtouch</button>
+              <button type="button" data-mechanic="lifelink" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Lifelink</button>
+              <button type="button" data-mechanic="double-strike" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Double Strike</button>
+              <button type="button" data-mechanic="haste" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Haste</button>
+              <button type="button" data-mechanic="hexproof" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Hexproof</button>
+              <button type="button" data-mechanic="flying" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Flying</button>
+              <button type="button" data-mechanic="indestructible" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">Indestructible</button>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="font-display text-lg text-mtg-gold mb-3">Lieblings-Themes</h3>
+            <div id="favorite-themes" class="flex flex-wrap gap-2"></div>
+          </div>
+
+          <div class="flex justify-end pt-4">
+            <button
+              id="save-profile"
+              type="button"
+              class="rounded-full border border-mtg-gold/50 bg-mtg-panel/90 px-6 py-2 text-sm font-semibold text-mtg-parchment shadow-glow transition hover:border-mtg-gold hover:bg-mtg-gold/10"
+            >
+              Profil speichern
+            </button>
           </div>
         </div>
       </div>

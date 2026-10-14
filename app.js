@@ -1,5 +1,6 @@
 const STORAGE_KEY = "commander-tinder-likes";
 const SEEN_KEY = "commander-tinder-seen";
+const PROFILE_KEY = "commander-tinder-profile";
 
 // Affiliate ID variable (to be filled in later)
 const AFFILIATE_ID = '';
@@ -21,6 +22,17 @@ const cardmarketLinkEl = document.getElementById("cardmarket-link");
 
 const likeBtn = document.getElementById("like-btn");
 const dislikeBtn = document.getElementById("dislike-btn");
+const profileOpenBtn = document.getElementById("profile-open");
+const profileModalEl = document.getElementById("profile-modal");
+const profileCloseBtn = document.getElementById("profile-close");
+const profileBackdrop = document.getElementById("profile-backdrop");
+const saveProfileBtn = document.getElementById("save-profile");
+
+// Profil-Elemente
+const favoriteColorsEl = document.getElementById("favorite-colors");
+const favoriteMechanicsEl = document.getElementById("favorite-mechanics");
+const colorFilterButtons = document.querySelectorAll('.color-filter-btn');
+const mechanicButtons = document.querySelectorAll('[data-mechanic]');
 
 function getCardmarketUrl(cardName) {
   let url = `https://www.cardmarket.com/de/Magic/Products/Search?searchString=${encodeURIComponent(cardName)}`;
@@ -43,7 +55,11 @@ const state = {
   busy: false,
   synergyToken: 0,
   synergyCache: new Map(),
+  cardCache: new Map(), // Suchanfrage -> komplett geladene Kartenliste
+  loading: false,
 };
+
+let loadToken = 0;
 
 function loadJson(key, fallback) {
   try {
@@ -54,10 +70,33 @@ function loadJson(key, fallback) {
   }
 }
 
-function saveLikes() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.likes));
-  localStorage.setItem(SEEN_KEY, JSON.stringify([...state.seen]));
+function updateLikesCount() {
   likesCountEl.textContent = String(state.likes.length);
+}
+
+function saveLikes() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.likes));
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...state.seen]));
+  } catch (error) {
+    console.error("Likes konnten nicht gespeichert werden:", error);
+  }
+  updateLikesCount();
+}
+
+// Profil-Speicherungsfunktionen
+function saveProfile(profile) {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    return true;
+  } catch (error) {
+    console.error("Profil konnte nicht gespeichert werden:", error);
+    return false;
+  }
+}
+
+function loadProfile() {
+  return loadJson(PROFILE_KEY, null);
 }
 
 function escapeHtml(value) {
@@ -114,17 +153,96 @@ function getCardMana(card) {
   };
 }
 
+// ---------------------------------------------------------------
+// Themes (aus Regeltext und Kreaturentypen abgeleitet)
+// ---------------------------------------------------------------
+const THEMES = [
+  { key: "tribal",      label: "Tribal" }, // Sonderfall, siehe detectThemes
+  { key: "lifegain",    label: "Lifegain",           re: /\bgains? (?:\w+ ){0,3}life\b|lifelink|whenever you gain life/ },
+  { key: "counters",    label: "+1/+1 Counter",      re: /\+1\/\+1 counter|\bproliferate\b/ },
+  { key: "tokens",      label: "Tokens",             re: /\bcreates? [^.]*\btoken|tokens? you control|populate/ },
+  { key: "graveyard",   label: "Graveyard",          re: /graveyard|\bunearth\b|\bflashback\b|\bescape\b|\bdelve\b/ },
+  { key: "sacrifice",   label: "Sacrifice",          re: /\bsacrifices?\b|whenever [^.]*\bdies\b/ },
+  { key: "spellslinger",label: "Spellslinger",       re: /instant or sorcery|whenever you cast (?:an? )?(?:noncreature|instant|sorcery)|\bmagecraft\b|\bstorm\b|\bcopy target (?:instant|sorcery)/ },
+  { key: "artifacts",   label: "Artifacts",          re: /\bartifacts?\b|\btreasure\b|\bclues?\b|\bfood\b|\bvehicles?\b/ },
+  { key: "enchantments",label: "Enchantments",       re: /\benchantments?\b|\bauras?\b|constellation|\bsagas?\b/ },
+  { key: "carddraw",    label: "Card Draw",          re: /\bdraws? (?:a|an|two|three|four|x|that many|cards?)\b|whenever you draw/ },
+  { key: "landfall",    label: "Landfall / Ramp",    re: /landfall|additional land|search your library for [^.]*\bland\b|put [^.]*\bland cards? [^.]*onto the battlefield|play lands? from/ },
+  { key: "mill",        label: "Mill",               re: /\bmills?\b|puts? the top [^.]*cards? of (?:their|your|target [^.]*) library into/ },
+  { key: "voltron",     label: "Voltron / Equipment",re: /\bequip\b|equipped creature|attach|\bdouble strike\b|\bcommander damage\b|aura (?:and|or) equipment/ },
+  { key: "infect",      label: "Infect / Gift",      re: /\binfect\b|poison counter|\btoxic\b/ },
+  { key: "drain",       label: "Drain / Burn",       re: /each opponent loses|deals? \d+ damage to (?:each|any|target) (?:opponent|player)|deals? damage to each opponent/ },
+];
+
+const THEME_LABELS = Object.fromEntries(THEMES.map((t) => [t.key, t.label]));
+
+// Mehrzahl-Formen eines Kreaturentyps (Elf -> Elves, Wolf -> Wolves, Sphinx -> Sphinxes)
+function creatureTypeRegex(type) {
+  const t = type.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const forms = [`${t}`, `${t}s`, `${t}es`];
+  if (t.endsWith("f")) forms.push(`${t.slice(0, -1)}ves`);
+  if (t.endsWith("fe")) forms.push(`${t.slice(0, -2)}ves`);
+  return new RegExp(`\\b(?:${forms.join("|")})\\b`);
+}
+
+function detectThemes({ name = "", faces = [] }) {
+  const found = [];
+
+  // Eigenen Namen aus dem Text entfernen, sonst zählt "Goblin Chainwhirler" als Goblin-Tribal
+  const names = [name, name.split(",")[0], ...faces.map((f) => f.name || "")]
+    .map((n) => n.trim().toLowerCase())
+    .filter((n) => n.length > 2);
+  let text = faces.map((f) => f.text || "").join("\n").toLowerCase();
+  names.sort((a, b) => b.length - a.length).forEach((n) => {
+    text = text.split(n).join(" ");
+  });
+
+  // Tribal: eigene Kreaturentypen tauchen im Regeltext auf (oder "gewählter Typ")
+  const subtypes = new Set();
+  faces.forEach((f) => {
+    if (!/\bcreature\b/i.test(f.type || "") || !f.type.includes("—")) return;
+    f.type.split("—")[1].trim().split(/\s+/).filter(Boolean).forEach((s) => subtypes.add(s));
+  });
+  const tribes = [...subtypes].filter((s) => creatureTypeRegex(s).test(text));
+  if (tribes.length) {
+    found.push({ key: "tribal", label: THEME_LABELS.tribal, detail: tribes.join("/") });
+  } else if (/choose a creature type|of the chosen type|\bchangeling\b|creature type/.test(text)) {
+    found.push({ key: "tribal", label: THEME_LABELS.tribal, detail: "beliebiger Typ" });
+  }
+
+  THEMES.forEach((theme) => {
+    if (theme.re && theme.re.test(text)) {
+      found.push({ key: theme.key, label: theme.label });
+    }
+  });
+  return found;
+}
+
+function themeChips(card) {
+  if (!card.themes?.length) return "";
+  return `<div class="mt-2 flex flex-wrap gap-1.5">${card.themes
+    .map(
+      (t) =>
+        `<span class="rounded-full border border-mtg-gold/30 bg-mtg-gold/10 px-2 py-0.5 text-[11px] font-semibold text-mtg-parchment">${escapeHtml(
+          t.label + (t.detail ? ` (${t.detail})` : "")
+        )}</span>`
+    )
+    .join("")}</div>`;
+}
+
 function summarize(card) {
   const manaInfo = getCardMana(card);
+  const faces = oracleFaces(card);
   return {
     id: card.id,
     name: card.name,
     type: card.type_line,
-    colors: card.colors || [],
+    colors: card.colors || card.card_faces?.[0]?.colors || [],
     image: imageFor(card),
     scryfall: card.scryfall_uri,
     set: card.set_name,
-    faces: oracleFaces(card),
+    faces,
+    themes: detectThemes({ name: card.name, faces }),
     mana_cost: manaInfo.mana_cost,
     cmc: manaInfo.cmc,
     eurPrice: card.prices?.eur || 'N/A',
@@ -181,41 +299,90 @@ function shuffle(list) {
   return copy;
 }
 
-async function fetchCommanders() {
-  statusEl.textContent = "Commanders werden beschworen…";
-  const collected = [];
-  
-  const isAllSelected = !state.selectedColor || 
-                        state.selectedColor.includes("all") || 
-                        state.selectedColor.length === 0;
+// Farbfilter schon bei Scryfall anwenden -> deutlich weniger Seiten
+function buildQuery() {
+  let q = "is:commander game:paper -is:digital";
+  const colors = (state.selectedColor || []).filter((c) => c !== "all");
+  if (!colors.length) return q;
 
-  let url = `https://api.scryfall.com/cards/search?q=is%3Acommander+game%3Apaper+-is%3Adigital&unique=cards&order=edhrec`;
+  const parts = [];
+  if (colors.includes("C")) parts.push("c:c");
+  const real = colors.filter((c) => c !== "C");
+  if (real.length) parts.push(`c=${real.join("").toLowerCase()}`);
+  return parts.length > 1 ? `${q} (${parts.join(" or ")})` : `${q} ${parts[0]}`;
+}
+
+function usableCards(cards) {
+  return shuffle(
+    filterCardsByColors(cards, state.selectedColor).filter(
+      (card) => card.image && !state.seen.has(card.id)
+    )
+  );
+}
+
+// Lädt Seite für Seite: die erste Karte erscheint nach dem ersten Request,
+// der Rest wird im Hintergrund nachgeladen und unter die Warteschlange gemischt.
+async function loadDeck() {
+  const token = ++loadToken;
+  const stale = () => token !== loadToken;
+  const query = buildQuery();
+
+  const cached = state.cardCache.get(query);
+  if (cached) {
+    state.loading = false;
+    state.queue = usableCards(cached);
+    renderDeck();
+    return;
+  }
+
+  state.loading = true;
+  state.queue = [];
+  renderDeck();
+
+  const all = [];
+  let url = `https://api.scryfall.com/cards/search?${new URLSearchParams({
+    q: query,
+    unique: "cards",
+    order: "edhrec",
+  })}`;
 
   try {
     while (url) {
       const res = await fetch(url);
+      if (stale()) return;
       if (!res.ok) {
-        if (res.status === 404) break;
+        if (res.status === 404) break; // keine Treffer
         throw new Error("Scryfall antwortet nicht");
       }
       const data = await res.json();
-      collected.push(...(data.data || []));
+      if (stale()) return;
+
+      const page = (data.data || []).map(summarize);
+      all.push(...page);
+
+      const before = state.queue.length;
+      const visible = state.queue.slice(0, 3);
+      state.queue = [...visible, ...shuffle([...state.queue.slice(3), ...usableCards(page)])];
+
+      // Deck nur neu zeichnen, wenn sich die sichtbaren Karten ändern
+      if (before < 3 && !state.busy && !state.dragging) renderDeck();
+      else updateStatus();
+
       url = data.next_page;
+      if (url) await new Promise((resolve) => setTimeout(resolve, 75));
     }
-    
-    const summarizedCards = collected.map(summarize);
-    
-    let filteredCards = summarizedCards;
-    if (!isAllSelected) {
-      filteredCards = filterCardsByColors(summarizedCards, state.selectedColor);
-    }
-    
-    return shuffle(filteredCards.filter((card) => card.image && !state.seen.has(card.id)));
+
+    state.cardCache.set(query, all);
   } catch (error) {
-    statusEl.textContent = "Karten konnten nicht geladen werden.";
     console.error(error);
-    return [];
+    if (stale()) return;
+    statusEl.textContent = "Karten konnten nicht geladen werden.";
   }
+
+  if (stale()) return;
+  state.loading = false;
+  if (state.queue.length === 0) renderDeck();
+  else updateStatus();
 }
 
 function colorPips(colors) {
@@ -319,6 +486,7 @@ function renderIntel(card) {
       <span class="font-semibold">Preis:</span> 
       <span>${card.eurPrice === 'N/A' ? 'Preis n.v.' : card.eurPrice + ' €'}</span>
     </div>
+    ${themeChips(card)}
     <div class="mt-4 rounded-xl border border-white/5 bg-black/25 p-4">${oracleMarkup(card)}</div>
   `;
   loadSynergyCards(card);
@@ -442,15 +610,29 @@ async function loadSynergyCards(card) {
   }
 }
 
+function updateStatus() {
+  if (state.queue.length) {
+    statusEl.textContent =
+      `${state.queue.length} Commanders warten auf dein Urteil` +
+      (state.loading ? " (lade weitere…)" : "");
+  } else {
+    statusEl.textContent = state.loading ? "Commanders werden beschworen…" : "Keine weiteren Commanders";
+  }
+}
+
 function renderDeck() {
   const visible = state.queue.slice(0, 3);
   deckEl.innerHTML = visible.map((card, i) => cardMarkup(card, i)).join("");
-  emptyStateEl.classList.toggle("hidden", state.queue.length > 0);
-  statusEl.textContent = state.queue.length
-    ? `${state.queue.length} Commanders warten auf dein Urteil`
-    : "Keine weiteren Commanders";
+  emptyStateEl.classList.toggle("hidden", state.queue.length > 0 || state.loading);
+  updateStatus();
   bindTopCard();
   renderIntel(state.queue[0] || null);
+
+  // Bilder der nächsten Karten vorladen, damit sie sofort da sind
+  state.queue.slice(3, 8).forEach((card) => {
+    const img = new Image();
+    img.src = card.image;
+  });
 }
 
 function topCardEl() {
@@ -518,6 +700,89 @@ function resetTopCard() {
   }, 200);
 }
 
+// ---------------------------------------------------------------
+// Match-Logik (Profil: Farben + Mechaniken)
+// ---------------------------------------------------------------
+const MECHANIC_LABELS = {
+  "trample": "Trample",
+  "first-strike": "First Strike",
+  "vigilance": "Vigilance",
+  "deathtouch": "Deathtouch",
+  "lifelink": "Lifelink",
+  "double-strike": "Double Strike",
+  "haste": "Haste",
+  "hexproof": "Hexproof",
+  "flying": "Flying",
+  "indestructible": "Indestructible",
+};
+
+// Punkte: Farben 2 (alle Kartenfarben in Favoriten) / 1 (teilweise),
+//         Mechaniken 1 pro Treffer (max. 2), Themes 1 pro Treffer (max. 2).
+// Match ab: 3 Punkten, sobald mehrere Kategorien im Profil gewählt sind.
+//           Bei nur einer Kategorie: Farben 2, Mechaniken/Themes 1 Punkt.
+function evaluateMatch(card) {
+  const profile = loadProfile();
+  if (!profile) return null;
+
+  const favColors = (profile.favoriteColors || []).filter((c) => c !== "all");
+  const favMechs = profile.favoriteMechanics || [];
+  const favThemes = profile.favoriteThemes || [];
+  const categories = [favColors.length, favMechs.length, favThemes.length].filter(Boolean).length;
+  if (!categories) return null;
+
+  const reasons = [];
+  let score = 0;
+
+  if (favColors.length) {
+    const cardColors = card.colors?.length ? card.colors : ["C"];
+    const hits = cardColors.filter((c) => favColors.includes(c));
+    if (hits.length === cardColors.length) {
+      score += 2;
+      reasons.push(`Farben passen (${cardColors.join("")})`);
+    } else if (hits.length) {
+      score += 1;
+      reasons.push(`Farbe teilweise (${hits.join("")})`);
+    }
+  }
+
+  if (favMechs.length) {
+    const text = (card.faces || []).map((f) => f.text || "").join("\n").toLowerCase();
+    const hits = favMechs.filter((m) => new RegExp(`\\b${m.replace(/-/g, " ")}\\b`).test(text));
+    score += Math.min(2, hits.length);
+    hits.forEach((m) => reasons.push(MECHANIC_LABELS[m] || m));
+  }
+
+  if (favThemes.length) {
+    const hits = (card.themes || []).filter((t) => favThemes.includes(t.key));
+    score += Math.min(2, hits.length);
+    hits.forEach((t) => reasons.push(t.label + (t.detail ? ` (${t.detail})` : "")));
+  }
+
+  const threshold = categories > 1 ? 3 : favColors.length ? 2 : 1;
+  return { isMatch: score >= threshold, score, reasons };
+}
+
+let matchTimer = null;
+function showMatch(card, match) {
+  let el = document.getElementById("match-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "match-toast";
+    el.className =
+      "pointer-events-none fixed inset-x-0 top-24 z-[70] flex justify-center px-4 opacity-0 transition-opacity duration-300";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="rounded-2xl border border-mtg-gold bg-mtg-panel/95 px-6 py-4 text-center shadow-card">
+      <p class="font-display text-2xl tracking-[0.2em] text-mtg-gold">IT'S A MATCH!</p>
+      <p class="mt-1 text-sm text-mtg-parchment">${escapeHtml(card.name)}</p>
+      <p class="mt-1 text-xs text-stone-300">${escapeHtml(match.reasons.join(" · "))}</p>
+    </div>`;
+  requestAnimationFrame(() => el.classList.remove("opacity-0"));
+  clearTimeout(matchTimer);
+  matchTimer = setTimeout(() => el.classList.add("opacity-0"), 2400);
+}
+
 function decide(liked) {
   if (state.busy || !state.queue.length) return;
   state.busy = true;
@@ -534,10 +799,12 @@ function decide(liked) {
   }
 
   state.seen.add(current.id);
+  const match = liked ? evaluateMatch(current) : null;
   if (liked && !state.likes.some((item) => item.id === current.id)) {
-    state.likes.unshift(summarize(current));
+    state.likes.unshift({ ...current, match: match?.isMatch ? match : null });
   }
   saveLikes();
+  if (match?.isMatch) showMatch(current, match);
 
   window.setTimeout(() => {
     state.queue.shift();
@@ -560,7 +827,16 @@ function renderLikes() {
   likesGridEl.innerHTML = state.likes
     .map(
       (card) => `
-        <article class="overflow-hidden rounded-xl border border-mtg-gold/20 bg-black/30" data-id="${escapeHtml(card.id)}">
+        <article class="overflow-hidden rounded-xl border border-mtg-gold/20 bg-black/30 relative" data-id="${escapeHtml(card.id)}">
+          <button 
+            type="button" 
+            data-remove="${escapeHtml(card.id)}" 
+            class="absolute top-2 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-rose-900/80 text-xs text-rose-200 hover:bg-rose-800/80"
+            aria-label="Karte entfernen"
+          >
+            ×
+          </button>
+          ${card.match ? `<span class="absolute left-2 top-2 z-10 rounded-full bg-mtg-gold/90 px-2 py-0.5 text-[10px] font-bold text-black" title="${escapeHtml(card.match.reasons.join(" · "))}">★ Match</span>` : ""}
           <img src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}" class="aspect-[5/7] w-full object-cover" />
           <div class="p-3">
             <h3 class="font-display text-sm text-mtg-parchment">${escapeHtml(card.name)}</h3>
@@ -602,6 +878,7 @@ function showLikeDetail(card) {
             <span>${card.eurPrice === 'N/A' ? 'Preis n.v.' : card.eurPrice + ' €'}</span>
           </div>
           <div class="mt-2 flex items-center gap-1">${colorPips(card.colors)}</div>
+          ${themeChips(card)}
         </div>
       </div>
       <div class="mt-4 rounded-xl border border-white/5 bg-black/25 p-4">${oracleMarkup(card)}</div>
@@ -664,46 +941,31 @@ function closeLikes() {
 
 let selectedColors = new Set(["all"]);
 
-document.querySelectorAll(".color-filter-btn").forEach((btn) => {
-  btn.addEventListener("click", async (e) => {
-    const target = e.currentTarget;
-    const color = target.getAttribute("data-color");
-    
+const mainFilterButtons = document.querySelectorAll("#main-color-filter .color-filter-btn");
+
+mainFilterButtons.forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const color = btn.getAttribute("data-color");
+
     if (color === "all") {
       selectedColors.clear();
       selectedColors.add("all");
-      document.querySelectorAll(".color-filter-btn").forEach((b) => b.classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active"));
-      target.classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
-      document.getElementById('color-filters').style.display = 'flex';
     } else {
-      if (selectedColors.has("all")) {
-        selectedColors.delete("all");
-        document.querySelector("[data-color='all']").classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active");
-        document.getElementById('color-filters').style.display = 'flex';
-      }
-      
-      if (selectedColors.has(color)) {
-        selectedColors.delete(color);
-        target.classList.remove("border-mtg-gold", "bg-mtg-gold/20", "active");
-      } else {
-        selectedColors.add(color);
-        target.classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
-      }
-      
-      if (selectedColors.size === 0) {
-        selectedColors.add("all");
-        document.querySelector("[data-color='all']").classList.add("border-mtg-gold", "bg-mtg-gold/20", "active");
-        document.getElementById('color-filters').style.display = 'flex';
-      }
+      selectedColors.delete("all");
+      if (selectedColors.has(color)) selectedColors.delete(color);
+      else selectedColors.add(color);
+      if (selectedColors.size === 0) selectedColors.add("all");
     }
-    
+
+    mainFilterButtons.forEach((b) =>
+      b.classList.toggle("active", selectedColors.has(b.getAttribute("data-color")))
+    );
+
     state.selectedColor = Array.from(selectedColors);
     state.seen.clear();
     saveLikes();
-    
-    const cards = await fetchCommanders();
-    state.queue = cards;
-    renderDeck();
+
+    await loadDeck();
   });
 });
 
@@ -753,6 +1015,10 @@ likesGridEl.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (profileModalEl.classList.contains("flex")) {
+    if (event.key === "Escape") closeProfile();
+    return;
+  }
   if (likesModalEl.classList.contains("flex")) {
     if (event.key === "Escape") closeLikes();
     return;
@@ -787,21 +1053,125 @@ document.addEventListener("click", (e) => {
   }
 });
 
-likesGridEl.addEventListener("click", (e) => {
-  if (e.target.matches("[data-remove]")) {
-    const id = e.target.getAttribute("data-remove");
-    state.likes = state.likes.filter((card) => card.id !== id);
-    saveLikes();
-    renderLikes();
-  }
-});
+// ---------------------------------------------------------------
+// Profil-System
+// ---------------------------------------------------------------
+const profileColorBtns = () => document.querySelectorAll("#favorite-colors .color-filter-btn");
+const profileMechanicBtns = () => document.querySelectorAll("#favorite-mechanics button");
+const profileThemeBtns = () => document.querySelectorAll("#favorite-themes button");
 
+function renderThemeButtons() {
+  const container = document.getElementById("favorite-themes");
+  if (!container) return;
+  container.innerHTML = THEMES.map(
+    (t) =>
+      `<button type="button" data-theme="${t.key}" class="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-stone-300 transition hover:bg-white/10">${escapeHtml(t.label)}</button>`
+  ).join("");
+}
+
+function initProfileSystem() {
+  renderThemeButtons();
+  profileOpenBtn.addEventListener("click", openProfile);
+  profileCloseBtn.addEventListener("click", closeProfile);
+  profileBackdrop.addEventListener("click", closeProfile);
+  saveProfileBtn.addEventListener("click", saveProfileToStorage);
+
+  // Lieblingsfarben: "Alle" ist exklusiv, einzelne Farben schalten "Alle" ab
+  profileColorBtns().forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const color = btn.getAttribute("data-color");
+      if (color === "all") {
+        const turnOn = !btn.classList.contains("active");
+        profileColorBtns().forEach((b) => b.classList.remove("active"));
+        btn.classList.toggle("active", turnOn);
+      } else {
+        profileColorBtns().forEach((b) => {
+          if (b.getAttribute("data-color") === "all") b.classList.remove("active");
+        });
+        btn.classList.toggle("active");
+      }
+    });
+  });
+
+  // Lieblings-Mechaniken: einfaches Ein/Aus
+  profileMechanicBtns().forEach((btn) => {
+    btn.addEventListener("click", () => btn.classList.toggle("active"));
+  });
+
+  // Lieblings-Themes: einfaches Ein/Aus
+  profileThemeBtns().forEach((btn) => {
+    btn.addEventListener("click", () => btn.classList.toggle("active"));
+  });
+}
+
+function openProfile() {
+  loadProfileIntoForm();
+  profileModalEl.classList.remove("hidden");
+  profileModalEl.classList.add("flex");
+  profileModalEl.setAttribute("aria-hidden", "false");
+}
+
+function closeProfile() {
+  profileModalEl.classList.add("hidden");
+  profileModalEl.classList.remove("flex");
+  profileModalEl.setAttribute("aria-hidden", "true");
+}
+
+function saveProfileToStorage() {
+  const favoriteColors = Array.from(document.querySelectorAll("#favorite-colors .color-filter-btn.active"))
+    .map((btn) => btn.getAttribute("data-color"));
+
+  const favoriteMechanics = Array.from(document.querySelectorAll("#favorite-mechanics button.active"))
+    .map((btn) => btn.getAttribute("data-mechanic"));
+
+  const favoriteThemes = Array.from(document.querySelectorAll("#favorite-themes button.active"))
+    .map((btn) => btn.getAttribute("data-theme"));
+
+  const ok = saveProfile({ favoriteColors, favoriteMechanics, favoriteThemes });
+
+  saveProfileBtn.textContent = ok ? "Gespeichert ✓" : "Speichern fehlgeschlagen";
+  window.setTimeout(() => {
+    saveProfileBtn.textContent = "Profil speichern";
+    if (ok) closeProfile();
+  }, 600);
+}
+
+function loadProfileIntoForm() {
+  // Erst alles zurücksetzen, dann gespeicherte Auswahl anwenden
+  profileColorBtns().forEach((b) => b.classList.remove("active"));
+  profileMechanicBtns().forEach((b) => b.classList.remove("active"));
+  profileThemeBtns().forEach((b) => b.classList.remove("active"));
+
+  const profile = loadProfile();
+  if (!profile) return;
+
+  profileColorBtns().forEach((btn) => {
+    if (profile.favoriteColors?.includes(btn.getAttribute("data-color"))) {
+      btn.classList.add("active");
+    }
+  });
+
+  profileMechanicBtns().forEach((btn) => {
+    if (profile.favoriteMechanics?.includes(btn.getAttribute("data-mechanic"))) {
+      btn.classList.add("active");
+    }
+  });
+
+  profileThemeBtns().forEach((btn) => {
+    if (profile.favoriteThemes?.includes(btn.getAttribute("data-theme"))) {
+      btn.classList.add("active");
+    }
+  });
+}
+
+initProfileSystem();
+
+// ---------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------
 async function boot() {
-  save_likes_safe = true;
-  saveLikes();
-  const cards = await fetchCommanders();
-  state.queue = cards;
-  renderDeck();
+  updateLikesCount();
+  await loadDeck();
 }
 
 boot();

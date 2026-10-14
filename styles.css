@@ -41,6 +41,8 @@
 }
 
 .swipe-card img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -119,19 +121,96 @@
 .pip-G { background: #22c55e; }
 .pip-C { background: #a8a29e; }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* Scrollbar für Likes-Ansicht */
 .likes-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* füllt nur den Platz unter der Kopfzeile und darf schrumpfen */
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* "hidden" soll gegen die display-Regeln unten gewinnen */
+.likes-grid.hidden,
+.like-detail-view.hidden {
+  display: none;
 }
 
 .likes-grid {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  /* Grid-Layout für die Karten beibehalten */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* Zeilen behalten ihre Inhaltshöhe, statt sich in die Containerhöhe zu quetschen */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 1rem;
+  padding: 1rem;
 }
 
 .like-detail-view {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+}
+
+/* Stil für das Entfernen-Icon */
+.remove-button {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background-color: rgba(239, 68, 68, 0.8);
+  color: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.remove-button:hover {
+  background-color: rgba(239, 68, 68, 0.9);
+}
+
+
+/* Aktiver Zustand für Farbfilter und Profil-Auswahl */
+.color-filter-btn.active,
+#favorite-mechanics button.active,
+#favorite-themes button.active {
+  border-color: #d4af37;
+  background-color: rgba(212, 175, 55, 0.25);
+  color: #f3e6c4;
 }
