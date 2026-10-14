@@ -54,6 +54,8 @@ const state = {
   dy: 0,
   busy: false,
   synergyToken: 0,
+  detailToken: 0,
+  detailCard: null,
   synergyCache: new Map(),
   cardCache: new Map(), // Suchanfrage -> komplett geladene Kartenliste
   loading: false,
@@ -299,6 +301,52 @@ function shuffle(list) {
   return copy;
 }
 
+// ---------------------------------------------------------------
+// Scryfall-Zugriff: gedrosselt, mit Timeout und Wiederholung
+// ---------------------------------------------------------------
+const SCRYFALL_GAP_MS = 110; // Scryfall erlaubt ca. 10 Anfragen pro Sekunde und IP
+let scryfallChain = Promise.resolve();
+let lastScryfallCall = 0;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Alle Anfragen (Deck + Synergien) laufen nacheinander mit Mindestabstand
+function throttled(task) {
+  const run = scryfallChain.then(async () => {
+    const wait = lastScryfallCall + SCRYFALL_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastScryfallCall = Date.now();
+    return task();
+  });
+  scryfallChain = run.catch(() => {});
+  return run;
+}
+
+async function scryfallJson(url) {
+  let lastError;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const res = await throttled(async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        try {
+          return await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+      });
+      if (res.status === 404) return { data: [], notFound: true }; // Scryfall: keine Treffer
+      if (res.ok) return await res.json();
+      lastError = new Error(`HTTP ${res.status}`);
+      if (res.status !== 429 && res.status < 500) break; // z. B. 400: Wiederholen bringt nichts
+    } catch (error) {
+      lastError = error.name === "AbortError" ? new Error("Zeitüberschreitung") : error;
+    }
+    if (attempt < 3) await sleep(500 * 2 ** attempt); // nach dem letzten Versuch nicht mehr warten
+  }
+  throw lastError;
+}
+
 // Farbfilter schon bei Scryfall anwenden -> deutlich weniger Seiten
 function buildQuery() {
   let q = "is:commander game:paper -is:digital";
@@ -348,14 +396,9 @@ async function loadDeck() {
 
   try {
     while (url) {
-      const res = await fetch(url);
+      const data = await scryfallJson(url);
       if (stale()) return;
-      if (!res.ok) {
-        if (res.status === 404) break; // keine Treffer
-        throw new Error("Scryfall antwortet nicht");
-      }
-      const data = await res.json();
-      if (stale()) return;
+      if (data.notFound) break; // keine Treffer
 
       const page = (data.data || []).map(summarize);
       all.push(...page);
@@ -369,14 +412,13 @@ async function loadDeck() {
       else updateStatus();
 
       url = data.next_page;
-      if (url) await new Promise((resolve) => setTimeout(resolve, 75));
     }
 
     state.cardCache.set(query, all);
   } catch (error) {
     console.error(error);
     if (stale()) return;
-    statusEl.textContent = "Karten konnten nicht geladen werden.";
+    statusEl.textContent = `Karten konnten nicht geladen werden (${error.message}).`;
   }
 
   if (stale()) return;
@@ -504,109 +546,105 @@ function renderIntel(card) {
   }
 }
 
-function renderSynergySection(card, synergyCards) {
-  const slug = edhrecSlug(card.name);
-  const edhrecUrl = `https://edhrec.com/commanders/${slug}`;
-  
-  const link = `
-    <a
-      href="${edhrecUrl}"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="inline-flex items-center rounded-full border border-mtg-gold/50 px-4 py-2 text-sm font-semibold text-mtg-parchment transition hover:bg-mtg-gold/10"
-    >
-      Auf EDHREC ansehen
-    </a>
-  `;
-
-  const items = synergyCards.length
-    ? synergyCards
-        .map((item) => {
-          const img = item.image_uris?.small || item.card_faces?.[0]?.image_uris?.small || "";
-          return `
-            <a href="${item.scryfall_uri}" target="_blank" rel="noopener noreferrer" class="w-[92px] shrink-0 transform transition duration-200 hover:scale-110">
-              <img
-                src="${img}"
-                alt="${escapeHtml(item.name)}"
-                class="aspect-[5/7] w-full rounded-lg border border-mtg-gold/20 object-cover"
-              />
-              <p class="mt-1 line-clamp-2 text-[11px] leading-tight text-stone-200">${escapeHtml(item.name)}</p>
-              <p class="text-[10px] text-emerald-400">Verwandt</p>
-            </a>
-          `;
-        })
-        .join("")
-    : `<p class="text-sm text-stone-400">Keine spezifischen Karten gefunden.</p>`;
-
-  if (likeDetailViewEl && !likeDetailViewEl.classList.contains("hidden")) {
-    const synergyContainer = detailContentEl.querySelector(".synergy-row");
-    if (synergyContainer) {
-      synergyContainer.innerHTML = items;
-    }
-  } else {
-    edhrecBlockEl.innerHTML = `
-      <div class="flex items-end justify-between gap-3">
-        <div>
-          <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Thematische Synergien</p>
-          <p class="mt-1 text-xs text-stone-400">Passende Karten & Typen</p>
-        </div>
-        ${link}
-      </div>
-      <div class="synergy-row mt-4">${items}</div>
-    `;
+function synergyItemsMarkup(synergyCards) {
+  if (!synergyCards.length) {
+    return `<p class="text-sm text-stone-400">Keine spezifischen Karten gefunden.</p>`;
   }
+  return synergyCards
+    .map((item) => {
+      const img = item.image_uris?.small || item.card_faces?.[0]?.image_uris?.small || "";
+      return `
+        <a href="${escapeHtml(item.scryfall_uri)}" target="_blank" rel="noopener noreferrer" class="w-[92px] shrink-0 transform transition duration-200 hover:scale-110">
+          <img
+            src="${escapeHtml(img)}"
+            alt="${escapeHtml(item.name)}"
+            class="aspect-[5/7] w-full rounded-lg border border-mtg-gold/20 object-cover"
+          />
+          <p class="mt-1 line-clamp-2 text-[11px] leading-tight text-stone-200">${escapeHtml(item.name)}</p>
+          <p class="text-[10px] text-emerald-400">Verwandt</p>
+        </a>
+      `;
+    })
+    .join("");
 }
 
-async function loadSynergyCards(card) {
-  const token = ++state.synergyToken;
-  const cacheKey = card.id;
-
-  edhrecBlockEl.innerHTML = `
-    <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Synergien</p>
-    <p class="mt-2 text-sm text-stone-400">Passende Karten werden geladen…</p>
+function synergyBlockMarkup(card, rowHtml) {
+  const edhrecUrl = `https://edhrec.com/commanders/${edhrecSlug(card.name)}`;
+  return `
+    <div class="flex items-end justify-between gap-3">
+      <div>
+        <p class="font-display text-[11px] tracking-[0.22em] text-mtg-gold uppercase">Thematische Synergien</p>
+        <p class="mt-1 text-xs text-stone-400">Passende Karten & Typen</p>
+      </div>
+      <a
+        href="${edhrecUrl}"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center rounded-full border border-mtg-gold/50 px-4 py-2 text-sm font-semibold text-mtg-parchment transition hover:bg-mtg-gold/10"
+      >
+        Auf EDHREC ansehen
+      </a>
+    </div>
+    <div class="synergy-row mt-4">${rowHtml}</div>
   `;
+}
 
-  if (state.synergyCache.has(cacheKey)) {
-    if (token !== state.synergyToken) return;
-    renderSynergySection(card, state.synergyCache.get(cacheKey));
+async function fetchSynergy(card) {
+  const colors = card.colors || [];
+  const identity = colors.length ? `id<=${colors.join("")}` : "id=c";
+  const subtype = ((card.type || "").split("—")[1] || "").trim().split(" ")[0] || "";
+
+  const search = (q) =>
+    scryfallJson(`https://api.scryfall.com/cards/search?${new URLSearchParams({ q, order: "random" })}`);
+  const pick = (data) => (data.data || []).filter((item) => item.id !== card.id).slice(0, 6);
+
+  let results = [];
+  if (subtype.length > 2) {
+    results = pick(await search(`${identity} is:spell t:${subtype}`));
+  }
+  if (results.length < 3) {
+    results = pick(await search(`${identity} is:spell`));
+  }
+  return results;
+}
+
+// mode "main": Intel-Panel neben dem Deck, mode "detail": Detailansicht in "Meine Likes"
+async function loadSynergyCards(card, mode = "main") {
+  const isMain = mode === "main";
+  const tokenKey = isMain ? "synergyToken" : "detailToken";
+  const token = ++state[tokenKey];
+  const alive = () => token === state[tokenKey];
+
+  const paint = (rowHtml) => {
+    if (isMain) {
+      edhrecBlockEl.innerHTML = synergyBlockMarkup(card, rowHtml);
+    } else {
+      const row = detailContentEl.querySelector(".synergy-row");
+      if (row) row.innerHTML = rowHtml;
+    }
+  };
+
+  const cached = state.synergyCache.get(card.id);
+  if (cached) {
+    paint(synergyItemsMarkup(cached));
     return;
   }
 
-  const typeLine = card.type || "";
-  const subTypes = typeLine.split("—")[1] || "";
-  const firstSubtype = subTypes.trim().split(" ")[0] || "";
-  
-  const colorsQuery = card.colors.length > 0 ? `id<=${card.colors.join("")}` : `id=c`;
-  
-  let searchUrl = `https://api.scryfall.com/cards/search?q=${colorsQuery}+is%3Aspell`;
-  if (firstSubtype && firstSubtype.length > 2) {
-    searchUrl += `+t%3A${encodeURIComponent(firstSubtype)}`;
-  }
-  searchUrl += `&order=random`;
+  paint(`<p class="text-sm text-stone-400">Passende Karten werden geladen…</p>`);
 
   try {
-    const res = await fetch(searchUrl);
-    let results = [];
-    if (res.ok) {
-      const data = await res.json();
-      results = (data.data || []).filter((item) => item.id !== card.id).slice(0, 6);
-    }
-    
-    if (results.length < 3) {
-      const fallbackRes = await fetch(`https://api.scryfall.com/cards/search?q=${colorsQuery}+is%3Aspell&order=random`);
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        results = (fallbackData.data || []).filter((item) => item.id !== card.id).slice(0, 6);
-      }
-    }
-
-    state.synergyCache.set(cacheKey, results);
-    if (token !== state.synergyToken) return;
-    renderSynergySection(card, results);
+    const results = await fetchSynergy(card);
+    if (!alive()) return;
+    state.synergyCache.set(card.id, results); // nur erfolgreiche Antworten merken
+    paint(synergyItemsMarkup(results));
   } catch (error) {
-    console.error(error);
-    if (token !== state.synergyToken) return;
-    renderSynergySection(card, []);
+    console.error("Synergien:", error);
+    if (!alive()) return;
+    paint(`
+      <p class="text-sm text-stone-400">
+        Synergien konnten nicht geladen werden (${escapeHtml(error.message)}).
+        <button type="button" data-synergy-retry class="ml-1 font-semibold text-mtg-gold underline">Erneut versuchen</button>
+      </p>`);
   }
 }
 
@@ -918,7 +956,8 @@ function showLikeDetail(card) {
     </div>
   `;
   
-  loadSynergyCards(card);
+  state.detailCard = card;
+  loadSynergyCards(card, "detail");
 }
 
 function hideLikeDetail() {
@@ -1028,6 +1067,14 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (e) => {
+  const retryBtn = e.target.closest("[data-synergy-retry]");
+  if (retryBtn) {
+    const inDetail = likesModalEl.contains(retryBtn);
+    const card = inDetail ? state.detailCard : state.queue[0];
+    if (card) loadSynergyCards(card, inDetail ? "detail" : "main");
+    return;
+  }
+
   if (e.target.matches("#likes-open")) {
     openLikes();
   }

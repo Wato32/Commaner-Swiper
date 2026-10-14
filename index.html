@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Commander Tinder</title>
+    <title>Mana Match</title>
+    <meta name="description" content="Mana Match – swipe dich durch Magic: The Gathering Commander und finde dein Match." />
+    <meta name="theme-color" content="#0b0a0f" />
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -43,16 +47,18 @@
 
     <header class="relative z-20 flex items-center justify-between gap-4 px-4 py-4 sm:px-8">
       <div class="flex items-center gap-3">
-        <div
-          class="flex h-11 w-11 items-center justify-center rounded-full border border-mtg-gold/50 bg-mtg-panel text-mtg-gold shadow-glow"
-        >
-          <span class="font-display text-xl">⚔</span>
-        </div>
+        <img
+          src="assets/icon.png"
+          alt="Mana Match Logo"
+          width="48"
+          height="48"
+          class="h-12 w-12 shrink-0 object-contain"
+        />
         <div>
           <p class="font-display text-[11px] tracking-[0.28em] text-mtg-gold uppercase">
             Magic: The Gathering
           </p>
-          <h1 class="font-display text-xl sm:text-2xl text-mtg-parchment">Commander Tinder</h1>
+          <h1 class="font-display text-xl sm:text-2xl text-mtg-parchment">Mana Match</h1>
         </div>
       </div>
 
